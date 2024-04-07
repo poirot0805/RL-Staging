@@ -42,19 +42,10 @@ def matrix9D_to_6D(mat):
 
 def quat_to_matrix9D(quat):
     """
-    Euler angle to 3x3 rotation matrix.
-
-    Args:
-        euler (ndarray): Euler angle. Shape: (..., 3)
-        order (str, optional):
-            Euler rotation order AND order of parameter euler.
-            E.g. "yxz" means parameter "euler" is (y, x, z) and
-            rotation order is z applied first, then x, finally y.
-            i.e. p' = YXZp, where p' and p are column vectors.
-            Defaults to "zyx".
-        unit (str, optional):
-            Can be either degrees and radians.
-            Defaults to degrees.
+    Convert quaternions to rotation matrices.
+    quat: (..., 4)
+    return: (..., 3, 3)
+    numpy version is more accurate than torch version(more digits after decimal point)
     """
     mat = np.identity(3)
     qw, qx, qy, qz = quat[...,0:1],quat[...,1:2],quat[...,2:3],quat[...,3:4]

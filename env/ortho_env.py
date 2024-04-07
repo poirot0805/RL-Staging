@@ -3,7 +3,7 @@ import gym
 from gym import spaces
 from data import utils_np
 import hppfcl
-import open3d as o3d
+
 """_summary_
 1. 动作空间由50个苹果的9维变化向量组成
 2. 状态由50个苹果的9维姿态，50个苹果的9维目标姿态和50个苹果的100个形状采样点组成(9+9+100*3)
@@ -29,25 +29,40 @@ ids = up_ids+down_ids
 oid = {id: i for i, id in enumerate(ids)}   # dict{41:第0颗牙} 28颗牙
 
 class OrthoEnv(gym.Env):
-    def __init__(self,first_step,convex_hulls,beta=10,contact_threshold=0.6,prize=200):
+    def __init__(self,first_step,convex_hulls,beta=10,contact_threshold=0.3,prize=200,epsilon=0.6):
         
         # 定义动作空间和观察空间
         self.action_space = spaces.Box(low=-1, high=1, shape=(NUM_TEETH, 9), dtype=np.float32)  # 每个苹果的位置和姿态变化向量(平移和旋转
         self.observation_space = spaces.Box(low=-50, high=50, shape=(NUM_TEETH, STATE_DIM), dtype=np.float32)  
+        
         self.first_step=first_step
-        self.first_dis = np.linalg.norm(first_step[:, :3] - first_step[:, 9:12], axis=1)
-        self.first_angle_error = self.get_angle_error_np(first_step[:, 3:9], first_step[:, 12:18])
-        self.convex_hulls=convex_hulls
+        self.first_dis = np.linalg.norm(first_step[:, :3] - first_step[:, 9:12], axis=1)    # 初始状态与目标位置的距离
+        self.first_angle_error = self.get_angle_error_np(first_step[:, 3:9], first_step[:, 12:18])  #初始状态与目标朝向的角度差
+        self.convex_hulls=convex_hulls  # 碰撞检测用的凸包{"up_meshes"，"up_list","down_meshes","down_list"}
+        
+        self.beta=beta  # 旋转奖励的系数
+        self.contact_threshold=contact_threshold    # 碰撞惩罚的阈值
+        self.prize=prize    # 完成奖励
+        self.epsilon=epsilon    # 随机初始化的概率
         # 初始化状态
         self.state = first_step
         self.last_state = None
-        self.beta=beta
-        self.contact_threshold=contact_threshold
-        self.prize=prize
+
 
     def reset(self):
         # 重置环境到初始状态
-        self.state = self.first_step
+        ka = np.random.random()
+        if ka < self.epsilon:
+            # 以一定概率随机初始化前9维
+            self.state[:, :3] = self.first_step[:, :3] + np.random.normal(ka, 5, (NUM_TEETH, 3))
+            euler = np.random.normal(ka, 20, (NUM_TEETH, 3))    # 用欧拉角完成扰动
+            R = utils_np.euler_to_matrix(euler)
+            mat9d = utils_np.matrix6D_to_9D(self.first_step[:, 3:9])
+            self.state[:, 3:9] = utils_np.matrix9D_to_6D(np.matmul(mat9d, R))
+            self.first_dis = np.linalg.norm(self.state[:, :3] - self.state[:, 9:12], axis=1)
+            self.first_angle_error = self.get_angle_error_np(self.state[:, 3:9], self.state[:, 12:18])
+        else:
+            self.state = self.first_step
         self.last_state = None
         return self.state
     
@@ -61,7 +76,7 @@ class OrthoEnv(gym.Env):
         # 计算奖励
         reward_trans = self.calculate_translation_reward()
         reward_rot = self.calculate_rotation_reward()
-        reward_collision = self.calculate_collision_penalty()
+        reward_collision = self.calculate_collision_penalty()*self.beta
         reward_smooth = self.calculate_smooth_reward()
         reward+=(reward_trans+reward_rot+reward_collision+reward_smooth)
         reward -= 1  # 每执行一步减少的奖励
@@ -72,7 +87,7 @@ class OrthoEnv(gym.Env):
         if done:
             reward += self.prize  # 假定的团队奖励
         
-        return self.state, reward, done, {"info": f"trans:{reward_trans}, rot:{reward_rot}, smooth:{reward_smooth},collision:{reward_collision}"}
+        return self.state, reward, done, False, {"info": f"trans:{reward_trans}, rot:{reward_rot}, smooth:{reward_smooth},collision:{reward_collision}"}
 
     def calculate_translation_reward(self):
         # 根据苹果向目标位置移动的情况计算奖励
@@ -137,8 +152,8 @@ class OrthoEnv(gym.Env):
     
     def check_done(self):
         # 检查是否所有苹果都到达了指定位置和姿态
-        if np.linalg.norm(self.state[:, :3] - self.state[:, 9:12], axis=1).max() < 0.5 and \
-            self.get_angle_error_np(self.state[:, 3:9], self.state[:, 12:18]).max()*60 < np.pi:
+        if np.linalg.norm(self.state[:, :3] - self.state[:, 9:12], axis=1).max() < 0.2 and \
+            self.get_angle_error_np(self.state[:, 3:9], self.state[:, 12:18]).max()*90 < np.pi:
             return True
         return False
 
@@ -146,7 +161,8 @@ class OrthoEnv(gym.Env):
         a = utils_np.matrix6D_to_9D(a)       
         b = utils_np.matrix6D_to_9D(b)  
         # Matmul in numpy
-        rm = np.matmul(a.transpose(1,0), b)  # Adjusted axis for numpy's transpose
+        
+        rm = np.matmul(np.swapaxes(a, -2, -1), b)  # Adjusted axis for numpy's transpose
         tr = np.zeros(28)
 
         for k in range(28):
@@ -168,7 +184,7 @@ class OrthoEnv(gym.Env):
             distance_res.clear()
             col_res.clear()
             if abs(dist)>thres:
-                return abs(dist)-thres
+                return thres-abs(dist)
             else:
                 return 0
         # print("distance:",distance_res.min_distance)
