@@ -6,10 +6,10 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-import rl_utils
+import model.rl_utils
 
-from policy import PolicyNet
-from valuenet import QValueNet
+from model.policy import PolicyNet
+from model.valuenet import QValueNet
 
 class DDPG:
     ''' DDPG算法 '''
@@ -32,7 +32,7 @@ class DDPG:
 
     def take_action(self, state):
         state = torch.tensor([state], dtype=torch.float).to(self.device)
-        action = self.actor(state).item()
+        action = self.actor(state).detach().cpu().numpy()
         # 给动作添加噪声，增加探索
         action = action + self.sigma * np.random.randn(self.action_dim)
         return action
@@ -43,7 +43,7 @@ class DDPG:
 
     def update(self, transition_dict):
         states = torch.tensor(transition_dict['states'], dtype=torch.float).to(self.device)
-        actions = torch.tensor(transition_dict['actions'], dtype=torch.float).view(-1, 1).to(self.device)
+        actions = torch.tensor(transition_dict['actions'], dtype=torch.float).to(self.device)
         rewards = torch.tensor(transition_dict['rewards'], dtype=torch.float).view(-1, 1).to(self.device)
         next_states = torch.tensor(transition_dict['next_states'], dtype=torch.float).to(self.device)
         dones = torch.tensor(transition_dict['dones'], dtype=torch.float).view(-1, 1).to(self.device)

@@ -40,5 +40,6 @@ import data.utils_torch as utils_torch
 
 # **test4
 
-a= torch.randn(1,1)
-print(a.item())
+a= torch.randn(3,1)
+b = a.pow(2)
+print(b)

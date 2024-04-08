@@ -78,7 +78,6 @@ class SACContinuous:
         dones = torch.tensor(transition_dict['dones'],
                              dtype=torch.float).view(-1, 1).to(self.device)
         # 和之前章节一样,对倒立摆环境的奖励进行重塑以便训练
-        rewards = (rewards + 8.0) / 8.0
 
         # 更新两个Q网络
         td_target = self.calc_target(rewards, next_states, dones)

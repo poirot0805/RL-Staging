@@ -32,6 +32,7 @@ class ReplayBuffer:
 
     def size(self): 
         return len(self.buffer)
+    
 def loadConvexMesh(file_name: str):
     loader = hppfcl.MeshLoader()
     bvh: hppfcl.BVHModelBase = loader.load(file_name)
@@ -71,7 +72,17 @@ def getConvexDict(client,remove_idx):
         "down_list":down_list
     }
     return convex_dict
+def save_checkpoint(checkpoint_path, model, epoch, iteration, suffix=""):
+    checkpoint_path = checkpoint_path + suffix
+    checkpoint = {
+        "epoch": epoch,
+        "iteration": iteration,
+        "model": model.state_dict(),
 
+    }
+    torch.save(checkpoint, checkpoint_path)
+    print("Save checkpoint to {}.".format(checkpoint_path))
+    
 def moving_average(a, window_size):
     cumulative_sum = np.cumsum(np.insert(a, 0, 0)) 
     middle = (cumulative_sum[window_size:] - cumulative_sum[:-window_size]) / window_size
@@ -159,7 +170,8 @@ def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, min
 
     bvh_files.sort()
     total_len=len(bvh_files)
-
+    best_return =-1000000000
+    agent_name = type(agent).__name__
     assert total_len>= num_episodes
     with tqdm(total=num_episodes,desc='Training agent...') as pbar:
         for i in range(num_episodes):
@@ -199,8 +211,12 @@ def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, min
                         agent.update(transition_dict)
                 temp_return_list.append(episode_return)
             env.close()
-            pbar.set_postfix({'episode': '%d' % i, 'return': '%.3f' % np.mean(temp_return_list)})
-            return_list.append(temp_return_list)
+            tmp_mean = np.mean(temp_return_list)
+            if tmp_mean> best_return:
+                best_return = tmp_mean
+                save_checkpoint(r"/home/mjy/teeth/RL/checkpt",agent,i,i,suffix=f"best_{agent_name}.pth")
+            pbar.set_postfix({'episode': '%d' % i, 'return': '%.3f' % tmp_mean})
+            return_list.append(tmp_mean)
             pbar.update(1)
     return return_list
 

@@ -124,9 +124,9 @@ class OrthoEnv(gym.Env):
         x1 = np.sum(delta)
         x2 = np.sum(deltar)*beta
         if x1>0:
-            reward -=(x1)**2
+            reward -=np.log(x1+1)
         if x2>0:
-            reward -=(x2)**2
+            reward -=np.log(x2+1)
         return reward
         
     def calculate_collision_penalty(self):
