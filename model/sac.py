@@ -6,9 +6,9 @@ import torch
 import torch.nn.functional as F
 from torch.distributions import Normal
 import matplotlib.pyplot as plt
-import rl_utils
-from policy import PolicyNetContinuous
-from valuenet import QValueNet
+import model.rl_utils
+from model.policy import PolicyNetContinuous
+from model.valuenet import QValueNet
 class SACContinuous:
     ''' 处理连续动作的SAC算法 '''
     def __init__(self, state_dim, hidden_dim, action_dim, action_bound,
@@ -48,7 +48,7 @@ class SACContinuous:
     def take_action(self, state):
         state = torch.tensor([state], dtype=torch.float).to(self.device)
         action = self.actor(state)[0]
-        return [action.item()]
+        return action.detach().cpu().numpy()
 
     def calc_target(self, rewards, next_states, dones):  # 计算目标Q值
         next_actions, log_prob = self.actor(next_states)
@@ -70,7 +70,7 @@ class SACContinuous:
         states = torch.tensor(transition_dict['states'],
                               dtype=torch.float).to(self.device)
         actions = torch.tensor(transition_dict['actions'],
-                               dtype=torch.float).view(-1, 1).to(self.device)
+                               dtype=torch.float).to(self.device)
         rewards = torch.tensor(transition_dict['rewards'],
                                dtype=torch.float).view(-1, 1).to(self.device)
         next_states = torch.tensor(transition_dict['next_states'],

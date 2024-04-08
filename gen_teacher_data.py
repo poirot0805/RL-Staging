@@ -72,6 +72,7 @@ def simulation(pos,r9d,geo_code,client,remove_idx):
     step_num = pos.shape[0]
     check_error_premature=False
     check_error_nonstop=False
+    total_return=0
     for i in range(step_num):
         j = i+1 if i<step_num-1 else step_num-1
         current_state = np.concatenate([pos[i],r6d[i],pos[-1],r6d[-1],geo_code],axis=-1)
@@ -79,6 +80,7 @@ def simulation(pos,r9d,geo_code,client,remove_idx):
         action = next_state[:,:9]-current_state[:,:9]
         _,reward,done,_,info=env.step(action)
         print(info)
+        total_return+=reward
         if done and i<step_num-1:
             check_error_premature=True
             print(f"client:{client} gets target before final step!!!")
@@ -99,7 +101,8 @@ def simulation(pos,r9d,geo_code,client,remove_idx):
             "pos":pos.tolist(),
             "r9d":r9d.tolist(),
             "r6d":r6d.tolist(),
-            "geo_code":geo_code.tolist()
+            "geo_code":geo_code.tolist(),
+            "total_return":total_return
         }
         json.dump(data, fh)
     return check_error_premature,check_error_nonstop

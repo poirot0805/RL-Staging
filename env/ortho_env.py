@@ -56,7 +56,7 @@ class OrthoEnv(gym.Env):
             # 以一定概率随机初始化前9维
             self.state[:, :3] = self.first_step[:, :3] + np.random.normal(ka, 5, (NUM_TEETH, 3))
             euler = np.random.normal(ka, 20, (NUM_TEETH, 3))    # 用欧拉角完成扰动
-            R = utils_np.euler_to_matrix(euler)
+            R = utils_np.euler_to_matrix9D(euler)
             mat9d = utils_np.matrix6D_to_9D(self.first_step[:, 3:9])
             self.state[:, 3:9] = utils_np.matrix9D_to_6D(np.matmul(mat9d, R))
             self.first_dis = np.linalg.norm(self.state[:, :3] - self.state[:, 9:12], axis=1)
@@ -79,7 +79,7 @@ class OrthoEnv(gym.Env):
         reward_collision = self.calculate_collision_penalty()*self.beta
         reward_smooth = self.calculate_smooth_reward()
         reward+=(reward_trans+reward_rot+reward_collision+reward_smooth)
-        reward -= 1  # 每执行一步减少的奖励
+        reward -= 0.5  # 每执行一步减少的奖励
         
         done = self.check_done()
 
@@ -87,15 +87,16 @@ class OrthoEnv(gym.Env):
         if done:
             reward += self.prize  # 假定的团队奖励
         
-        return self.state, reward, done, False, {"info": f"trans:{reward_trans}, rot:{reward_rot}, smooth:{reward_smooth},collision:{reward_collision}"}
+        return self.state, reward, done, False, {"info": f"total:{reward},trans:{reward_trans}, rot:{reward_rot}, smooth:{reward_smooth},collision:{reward_collision}"}
 
     def calculate_translation_reward(self):
         # 根据苹果向目标位置移动的情况计算奖励
         current_positions = self.state[:, :3]
         target_positions = self.state[:, 9:12]
         distance = np.linalg.norm(current_positions - target_positions, axis=1)
-        reward = np.sum(self.first_dis - distance)
-        
+        x = np.sum(distance-self.first_dis) # 正值表示远离目标位置，负值表示接近目标位置
+        reward = (1 / (1 + np.exp(x))-0.6)*2
+        self.first_dis = distance
         return reward
 
     def calculate_rotation_reward(self,beta=10):
@@ -104,8 +105,11 @@ class OrthoEnv(gym.Env):
         current_rotations = self.state[:, 3:9]
         target_rotations = self.state[:, 12:18]
         angle_error = self.get_angle_error_np(current_rotations, target_rotations)
-        reward = np.sum(self.first_angle_error - angle_error)*beta
+        x = np.sum(angle_error-self.first_angle_error)*beta
+        reward = (1 / (1 + np.exp(x))-0.6)*2
+        self.first_angle_error = angle_error
         return reward
+    
     def calculate_smooth_reward(self,beta=10):
         beta = self.beta
         current_positions = self.state[:, :3]
@@ -117,7 +121,12 @@ class OrthoEnv(gym.Env):
         delta = dis-0.5
         angle_error = self.get_angle_error_np(current_rotations, last_rotations)
         deltar =  angle_error - np.pi/60
-        reward = 0-np.sum(delta)-np.sum(deltar)*beta
+        x1 = np.sum(delta)
+        x2 = np.sum(deltar)*beta
+        if x1>0:
+            reward -=(x1)**2
+        if x2>0:
+            reward -=(x2)**2
         return reward
         
     def calculate_collision_penalty(self):

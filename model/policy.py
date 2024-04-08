@@ -30,6 +30,6 @@ class PolicyNetContinuous(torch.nn.Module):
         log_prob = dist.log_prob(normal_sample)
         action = torch.tanh(normal_sample)
         # 计算tanh_normal分布的对数概率密度
-        log_prob = log_prob - torch.log(1 - torch.tanh(action).pow(2) + 1e-7)
+        log_prob = log_prob - torch.log(1 - action.pow(2) + 1e-7)
         action = action * self.action_bound
         return action, log_prob

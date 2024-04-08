@@ -27,13 +27,18 @@ import data.utils_torch as utils_torch
 # print(random_nums)
 
 # **test 3
-a = np.ones((4,2))
-b = np.zeros((4,1))
-c = np.concatenate([a,b],axis=-1)
+# a = np.ones((4,2))
+# b = np.zeros((4,1))
+# c = np.concatenate([a,b],axis=-1)
 
-print(c)
+# print(c)
 
-a[0,0]=3
-a[0,1]=4
-print(c)
+# d = a.tolist()
+# print(d)
+# e = np.array(d)
+# print(e)
 
+# **test4
+
+a= torch.randn(1,1)
+print(a.item())
