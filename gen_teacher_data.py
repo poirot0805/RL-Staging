@@ -92,16 +92,12 @@ def simulation(pos,r9d,geo_code,client,remove_idx):
         transition_dict['next_states'].append(next_state.tolist())
         transition_dict['rewards'].append(reward)
         transition_dict['dones'].append(done)
-    json_path = os.path.join(r"/home/mjy/teeth/RL/teacher_data",client+".json")
+    json_path = os.path.join(r"/datasets/mjy/teacher_data",client+".json")
     print(json_path)
     with open(json_path, "w") as fh:
         data = {
             "transition":transition_dict,
             "remove_idx":remove_idx,
-            "pos":pos.tolist(),
-            "r9d":r9d.tolist(),
-            "r6d":r6d.tolist(),
-            "geo_code":geo_code.tolist(),
             "total_return":total_return
         }
         json.dump(data, fh)

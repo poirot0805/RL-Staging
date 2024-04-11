@@ -29,7 +29,16 @@ class DDPG:
         self.tau = tau  # 目标网络软更新参数
         self.action_dim = action_dim
         self.device = device
-
+    def save(self):
+        model_dict = {
+            'actor': self.actor.state_dict(),
+            'critic': self.critic.state_dict(),
+            'target_actor': self.target_actor.state_dict(),
+            'target_critic': self.target_critic.state_dict(),
+            'actor_optimizer': self.actor_optimizer.state_dict(),
+            'critic_optimizer': self.critic_optimizer.state_dict()
+        }
+        return model_dict
     def take_action(self, state):
         state = torch.tensor([state], dtype=torch.float).to(self.device)
         action = self.actor(state).detach().cpu().numpy()

@@ -1,10 +1,12 @@
 import numpy as np
+import math
 import gym
 from gym import spaces
 from data import utils_np
 import hppfcl
 
 """_summary_
+/home/mjy/anaconda3/envs/rl/lib/python3.8/site-packages/gym/envs/user
 1. 动作空间由50个苹果的9维变化向量组成
 2. 状态由50个苹果的9维姿态，50个苹果的9维目标姿态和50个苹果的100个形状采样点组成(9+9+100*3)
 3. 可以参考“BipedalWalker-v3”环境做出修改
@@ -54,7 +56,7 @@ class OrthoEnv(gym.Env):
         ka = np.random.random()
         if ka < self.epsilon:
             # 以一定概率随机初始化前9维
-            self.state[:, :3] = self.first_step[:, :3] + np.random.normal(ka, 5, (NUM_TEETH, 3))
+            self.state[:, :3] = self.first_step[:, :3] + np.random.normal(ka, 5, (NUM_TEETH, 3))    # BUG:随机状态可能不合理
             euler = np.random.normal(ka, 20, (NUM_TEETH, 3))    # 用欧拉角完成扰动
             R = utils_np.euler_to_matrix9D(euler)
             mat9d = utils_np.matrix6D_to_9D(self.first_step[:, 3:9])
@@ -77,9 +79,9 @@ class OrthoEnv(gym.Env):
         reward_trans = self.calculate_translation_reward()
         reward_rot = self.calculate_rotation_reward()
         reward_collision = self.calculate_collision_penalty()*self.beta
-        reward_smooth = self.calculate_smooth_reward()
+        reward_smooth = self.calculate_smooth_reward()*0.25
         reward+=(reward_trans+reward_rot+reward_collision+reward_smooth)
-        reward -= 0.5  # 每执行一步减少的奖励
+        reward -= 0.8  # 每执行一步减少的奖励
         
         done = self.check_done()
 
@@ -89,24 +91,34 @@ class OrthoEnv(gym.Env):
         
         return self.state, reward, done, False, {"info": f"total:{reward},trans:{reward_trans}, rot:{reward_rot}, smooth:{reward_smooth},collision:{reward_collision}"}
 
-    def calculate_translation_reward(self):
+    def calculate_translation_reward(self,k=8.0):
         # 根据苹果向目标位置移动的情况计算奖励
-        current_positions = self.state[:, :3]
+        current_positions = self.state[:, :3]#（teeth,pos)
         target_positions = self.state[:, 9:12]
         distance = np.linalg.norm(current_positions - target_positions, axis=1)
-        x = np.sum(distance-self.first_dis) # 正值表示远离目标位置，负值表示接近目标位置
-        reward = (1 / (1 + np.exp(x))-0.6)*2
+        reward = -np.log((1+k*distance)/(1+k*self.first_dis))
+        print("reward-max:",reward.max(),"min:",reward.min(),"mean:",reward.mean())
+        print("distance-max:",distance.max(),"min:",distance.min(),"mean:",distance.mean())
+        print("first_dis-max:",self.first_dis.max(),"min:",self.first_dis.min(),"mean:",self.first_dis.mean())
+        reward = np.sum(reward)
+        # x = np.sum(distance-self.first_dis) # BUG:不应该sigmoid 正值表示远离目标位置，负值表示接近目标位置
+        # reward = (1 / (1 + np.exp(x))-0.6)*2    # BUG：不应该用sigmoid函数，应该用对数/指数函数，单调递减的函数
         self.first_dis = distance
         return reward
 
-    def calculate_rotation_reward(self,beta=10):
+    def calculate_rotation_reward(self,beta=10,k=8.0):
         # 根据苹果接近目标朝向的情况计算奖励
         beta = self.beta
         current_rotations = self.state[:, 3:9]
         target_rotations = self.state[:, 12:18]
         angle_error = self.get_angle_error_np(current_rotations, target_rotations)
-        x = np.sum(angle_error-self.first_angle_error)*beta
-        reward = (1 / (1 + np.exp(x))-0.6)*2
+        reward = -np.log((1+k*beta*angle_error)/(1+k*beta*self.first_angle_error))
+        print("reward-max:",reward.max(),"min:",reward.min(),"mean:",reward.mean())
+        print("angle_error-max:",angle_error.max(),"min:",angle_error.min(),"mean:",angle_error.mean())
+        print("first_angle_error-max:",self.first_angle_error.max(),"min:",self.first_angle_error.min(),"mean:",self.first_angle_error.mean())  
+        reward = np.sum(reward)
+        # x = np.sum(angle_error-self.first_angle_error)*beta
+        # reward = (1 / (1 + np.exp(x))-0.6)*2
         self.first_angle_error = angle_error
         return reward
     
@@ -193,7 +205,7 @@ class OrthoEnv(gym.Env):
             distance_res.clear()
             col_res.clear()
             if abs(dist)>thres:
-                return thres-abs(dist)
+                return -math.log(1+0.2*abs(dist)-0.2*thres)
             else:
                 return 0
         # print("distance:",distance_res.min_distance)

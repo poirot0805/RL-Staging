@@ -74,11 +74,11 @@ def getConvexDict(client,remove_idx):
     return convex_dict
 def save_checkpoint(checkpoint_path, model, epoch, iteration, suffix=""):
     checkpoint_path = checkpoint_path + suffix
+    model_dict = model.save()
     checkpoint = {
         "epoch": epoch,
         "iteration": iteration,
-        "model": model.state_dict(),
-
+        "model": model_dict
     }
     torch.save(checkpoint, checkpoint_path)
     print("Save checkpoint to {}.".format(checkpoint_path))
@@ -192,6 +192,8 @@ def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, min
             convex_dict=getConvexDict(basename,remove_list)
             env = gym.make('OrthoEnv',first_step=first_state,convex_hulls=convex_dict)
             for i_episode in range(explore_cnt):
+                bump_cnt=0
+                print(f"explore:{i_episode}")
                 episode_return = 0
                 _state = env.reset() # (28,126)
                 done = False
@@ -205,16 +207,19 @@ def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, min
                     replay_buffer.add(state, action, reward, next_state, done)  # replaybuffer里面放扁平化的数据
                     _state = _next_state
                     episode_return += reward
+                    bump_cnt+=1
                     if replay_buffer.size() > minimal_size:
                         b_s, b_a, b_r, b_ns, b_d = replay_buffer.sample(batch_size)
                         transition_dict = {'states': b_s, 'actions': b_a, 'next_states': b_ns, 'rewards': b_r, 'dones': b_d}
                         agent.update(transition_dict)
+                    if bump_cnt>150:
+                        break
                 temp_return_list.append(episode_return)
             env.close()
             tmp_mean = np.mean(temp_return_list)
             if tmp_mean> best_return:
                 best_return = tmp_mean
-                save_checkpoint(r"/home/mjy/teeth/RL/checkpt",agent,i,i,suffix=f"best_{agent_name}.pth")
+                save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,i,i,suffix=f"best_{agent_name}.pth")
             pbar.set_postfix({'episode': '%d' % i, 'return': '%.3f' % tmp_mean})
             return_list.append(tmp_mean)
             pbar.update(1)

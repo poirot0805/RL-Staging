@@ -39,7 +39,10 @@ import data.utils_torch as utils_torch
 # print(e)
 
 # **test4
-
-a= torch.randn(3,1)
-b = a.pow(2)
-print(b)
+k=1.0
+distance = np.abs(np.random.randn(4))
+first = np.abs(np.random.randn(4))
+print(distance)
+print(first)
+reward = -np.log((1+k*distance)/(1+k*first))
+print(reward)

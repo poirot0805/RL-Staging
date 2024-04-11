@@ -44,7 +44,20 @@ class SACContinuous:
         self.gamma = gamma
         self.tau = tau
         self.device = device
-
+    def save(self):
+        model_dict = {
+            'actor': self.actor.state_dict(),
+            'critic_1': self.critic_1.state_dict(),
+            'critic_2': self.critic_2.state_dict(),
+            'target_critic_1': self.target_critic_1.state_dict(),
+            'target_critic_2': self.target_critic_2.state_dict(),
+            'actor_optimizer': self.actor_optimizer.state_dict(),
+            'critic_1_optimizer': self.critic_1_optimizer.state_dict(),
+            'critic_2_optimizer': self.critic_2_optimizer.state_dict(),
+            'log_alpha': self.log_alpha,
+            'log_alpha_optimizer': self.log_alpha_optimizer.state_dict()
+        }
+        return model_dict
     def take_action(self, state):
         state = torch.tensor([state], dtype=torch.float).to(self.device)
         action = self.actor(state)[0]
@@ -52,11 +65,14 @@ class SACContinuous:
 
     def calc_target(self, rewards, next_states, dones):  # 计算目标Q值
         next_actions, log_prob = self.actor(next_states)
+        log_prob = log_prob.unsqueeze(1)
+        
         entropy = -log_prob
         q1_value = self.target_critic_1(next_states, next_actions)
         q2_value = self.target_critic_2(next_states, next_actions)
         next_value = torch.min(q1_value,
                                q2_value) + self.log_alpha.exp() * entropy
+        assert next_value.shape == rewards.shape
         td_target = rewards + self.gamma * next_value * (1 - dones)
         return td_target
 
@@ -81,8 +97,10 @@ class SACContinuous:
 
         # 更新两个Q网络
         td_target = self.calc_target(rewards, next_states, dones)
+        tmp =self.critic_1(states, actions)
+        print(tmp.shape,td_target.shape)
         critic_1_loss = torch.mean(
-            F.mse_loss(self.critic_1(states, actions), td_target.detach()))
+            F.mse_loss(tmp, td_target.detach()))
         critic_2_loss = torch.mean(
             F.mse_loss(self.critic_2(states, actions), td_target.detach()))
         self.critic_1_optimizer.zero_grad()

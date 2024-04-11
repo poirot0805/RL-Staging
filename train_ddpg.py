@@ -8,7 +8,7 @@ import random
 from model import rl_utils
 from model.ddpg import DDPG
 import matplotlib.pyplot as plt
-pretrain_epoch = 100
+pretrain_epoch = 1
 actor_lr = 3e-4
 critic_lr = 3e-3
 num_episodes = 1800
