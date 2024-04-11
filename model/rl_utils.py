@@ -9,7 +9,7 @@ import hppfcl
 import gym
 from data.utils_np import *
 import data.bvh as bvh
-
+import time
 up_ids = [i for i in range(17, 10, -1)] \
     + [i for i in range(21, 28)] 
 down_ids = [i for i in range(47, 40, -1)] \
@@ -141,7 +141,7 @@ def train_off_policy_agent(env, agent, num_episodes, replay_buffer, minimal_size
                 pbar.update(1)
     return return_list
 
-def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, minimal_size, batch_size,explore_cnt=5):
+def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, minimal_size, batch_size,explore_cnt=100):
     return_list = []
     # 加载num条原始数据
     data_root = [os.path.join(bvh_folder, "complete"), os.path.join(bvh_folder, "incomplete")]
@@ -170,57 +170,76 @@ def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, min
 
     bvh_files.sort()
     total_len=len(bvh_files)
+    best_return_batch =-1000000000
     best_return =-1000000000
     agent_name = type(agent).__name__
+    basename_list =[]
+    first_state_list =[]
+    remove_dict_list =[]
     assert total_len>= num_episodes
-    with tqdm(total=num_episodes,desc='Training agent...') as pbar:
-        for i in range(num_episodes):
+    for i in range(num_episodes):
+                bvh_path=bvh_files[i]
+                rootpath,basepath=os.path.split(bvh_path)
+                basename,_=os.path.splitext(basepath)
+                remove_list=remove_dict[basepath]['remove_ids']
+
+                geo_code=bvh.load_feature_npy(basename,True,remove_list=remove_list)
+                anim = bvh.load_tooth_json(bvh_path, start=0,remove_list=remove_list)
+                positions = anim.positions  # (seq,joint,3)
+                rotations = anim.rotations  # (seq,joint,3,3)
+                remove_list = anim.missing_list
+                r6d = matrix9D_to_6D(rotations)
+
+                first_state=np.concatenate([positions[0],r6d[0],positions[-1],r6d[-1],geo_code],axis=-1)
+                basename_list.append(basename)
+                first_state_list.append(first_state)
+                remove_dict_list.append(remove_list)
+    with tqdm(total=explore_cnt,desc='Training agent...') as pbar:
+        for epoch in range(explore_cnt):
             temp_return_list=[]
-            bvh_path=bvh_files[i]
-            rootpath,basepath=os.path.split(bvh_path)
-            basename,_=os.path.splitext(basepath)
-            remove_list=remove_dict[basepath]['remove_ids']
-
-            geo_code=bvh.load_feature_npy(basename,True,remove_list=remove_list)
-            anim = bvh.load_tooth_json(bvh_path, start=0,remove_list=remove_list)
-            positions = anim.positions  # (seq,joint,3)
-            rotations = anim.rotations  # (seq,joint,3,3)
-            remove_list = anim.missing_list
-            r6d = matrix9D_to_6D(rotations)
-
-            first_state=np.concatenate([positions[0],r6d[0],positions[-1],r6d[-1],geo_code],axis=-1)
-            convex_dict=getConvexDict(basename,remove_list)
-            env = gym.make('OrthoEnv',first_step=first_state,convex_hulls=convex_dict)
-            for i_episode in range(explore_cnt):
+            for i in range(num_episodes):
+                basename=basename_list[i]
+                first_state=first_state_list[i]
+                remove_list=remove_dict_list[i]
+                start_time = time.time()
+                convex_dict=getConvexDict(basename,remove_list)
+                env = gym.make('OrthoEnv',first_step=first_state,convex_hulls=convex_dict,epsilon=0)
+                end_time = time.time()
+                print(f"epoch:{epoch},episode:{i},load time:{end_time-start_time}")
                 bump_cnt=0
-                print(f"explore:{i_episode}")
+
                 episode_return = 0
                 _state = env.reset() # (28,126)
                 done = False
                 while not done:
-                    state = _state.flatten()
-                    action = agent.take_action(state)[0]
-                    _action = action.reshape(28,9)
-                    _next_state, reward, done, _,info = env.step(_action)
-                    print(info)
-                    next_state =_next_state.flatten()
-                    replay_buffer.add(state, action, reward, next_state, done)  # replaybuffer里面放扁平化的数据
-                    _state = _next_state
-                    episode_return += reward
-                    bump_cnt+=1
-                    if replay_buffer.size() > minimal_size:
-                        b_s, b_a, b_r, b_ns, b_d = replay_buffer.sample(batch_size)
-                        transition_dict = {'states': b_s, 'actions': b_a, 'next_states': b_ns, 'rewards': b_r, 'dones': b_d}
-                        agent.update(transition_dict)
-                    if bump_cnt>150:
-                        break
+                        state = _state.flatten()
+                        action = agent.take_action(state)[0]
+                        _action = action.reshape(28,9)
+                        _next_state, reward, done, _,info = env.step(_action)
+                        print(info)
+                        next_state =_next_state.flatten()
+                        replay_buffer.add(state, action, reward, next_state, done)  # replaybuffer里面放扁平化的数据
+                        _state = _next_state
+                        episode_return += reward
+                        bump_cnt+=1
+                        if replay_buffer.size() > minimal_size:
+                            b_s, b_a, b_r, b_ns, b_d = replay_buffer.sample(batch_size)
+                            transition_dict = {'states': b_s, 'actions': b_a, 'next_states': b_ns, 'rewards': b_r, 'dones': b_d}
+                            agent.update(transition_dict)
+                        if bump_cnt>150:
+                            break
                 temp_return_list.append(episode_return)
-            env.close()
+                env.close()
+                if i%50==0:
+                    tmp_mean = np.mean(temp_return_list)
+                    if tmp_mean> best_return_batch:
+                        best_return_batch = tmp_mean
+                        save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,epoch,i,suffix=f"bestbatch_{agent_name}.pth")
+                pbar.set_postfix({'episode': '%d' % i, 'return': '%.3f' % episode_return})
             tmp_mean = np.mean(temp_return_list)
             if tmp_mean> best_return:
                 best_return = tmp_mean
-                save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,i,i,suffix=f"best_{agent_name}.pth")
-            pbar.set_postfix({'episode': '%d' % i, 'return': '%.3f' % tmp_mean})
+                save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,epoch,0,suffix=f"best_{agent_name}.pth")
             return_list.append(tmp_mean)
             pbar.update(1)
     return return_list
