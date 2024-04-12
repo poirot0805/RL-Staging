@@ -32,7 +32,7 @@ device = torch.device("cuda:1") if torch.cuda.is_available() else torch.device(
 
 replay_buffer = rl_utils.ReplayBuffer(buffer_size)
 # 加载teacher数据到replaybuffer
-teacher_dataroot = r"/home/mjy/teeth/RL/teacher_data"
+teacher_dataroot = r"/datasets/mjy/teacher_data"
 teacher_cnt = 0
 teachers=[]
 for f in os.listdir(teacher_dataroot):
