@@ -8,11 +8,12 @@ import random
 from model import rl_utils
 from model.ddpg import DDPG
 import matplotlib.pyplot as plt
-pretrain_epoch = 1
+import pickle
+pretrain_epoch = 5
 actor_lr = 3e-4
 critic_lr = 3e-3
 num_episodes = 1800
-hidden_dim = 1024
+hidden_dim = 64
 gamma = 0.98
 tau = 0.005  # 软更新参数
 buffer_size = 1000000
@@ -29,7 +30,14 @@ torch.manual_seed(0)
 
 device = torch.device("cuda:1") if torch.cuda.is_available() else torch.device(
     "cpu")
-
+# get mean and std of the state
+stats_path = r"/home/mjy/teeth/RL/train_stats_context.pkl"
+with open(stats_path, "rb") as fh:
+    train_stats = pickle.load(fh)
+mean = train_stats["mean"]  # (28,9)
+std = train_stats["std"]    # (28,9)
+assert mean.shape == (28, 9)
+assert std.shape == (28, 9)
 replay_buffer = rl_utils.ReplayBuffer(buffer_size)
 # 加载teacher数据到replaybuffer
 teacher_dataroot = r"/datasets/mjy/teacher_data"
@@ -57,10 +65,10 @@ for f in teachers:
                 reward = rewards[i]
                 next_state = np.array(next_states[i]).flatten()
                 done = dones[i]
-            replay_buffer.add(state, action, reward, next_state, done)
+                replay_buffer.add(state, action, reward, next_state, done)
 
 
-agent = DDPG(state_dim, hidden_dim, action_dim, action_bound, sigma, actor_lr, critic_lr, tau, gamma, device)
+agent = DDPG(state_dim, hidden_dim, action_dim, action_bound, sigma, actor_lr, critic_lr, tau, gamma, device,mean,std)
 # pretrain 
 for i in range(pretrain_epoch):
     b_s, b_a, b_r, b_ns, b_d = replay_buffer.sample(batch_size)

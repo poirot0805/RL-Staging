@@ -97,9 +97,9 @@ class OrthoEnv(gym.Env):
         target_positions = self.state[:, 9:12]
         distance = np.linalg.norm(current_positions - target_positions, axis=1)
         reward = -np.log((1+k*distance)/(1+k*self.first_dis))
-        print("reward-max:",reward.max(),"min:",reward.min(),"mean:",reward.mean())
-        print("distance-max:",distance.max(),"min:",distance.min(),"mean:",distance.mean())
-        print("first_dis-max:",self.first_dis.max(),"min:",self.first_dis.min(),"mean:",self.first_dis.mean())
+        # print("reward-max:",reward.max(),"min:",reward.min(),"mean:",reward.mean())
+        # print("distance-max:",distance.max(),"min:",distance.min(),"mean:",distance.mean())
+        # print("first_dis-max:",self.first_dis.max(),"min:",self.first_dis.min(),"mean:",self.first_dis.mean())
         reward = np.sum(reward)
         # x = np.sum(distance-self.first_dis) # BUG:不应该sigmoid 正值表示远离目标位置，负值表示接近目标位置
         # reward = (1 / (1 + np.exp(x))-0.6)*2    # BUG：不应该用sigmoid函数，应该用对数/指数函数，单调递减的函数
@@ -113,9 +113,9 @@ class OrthoEnv(gym.Env):
         target_rotations = self.state[:, 12:18]
         angle_error = self.get_angle_error_np(current_rotations, target_rotations)
         reward = -np.log((1+k*beta*angle_error)/(1+k*beta*self.first_angle_error))
-        print("reward-max:",reward.max(),"min:",reward.min(),"mean:",reward.mean())
-        print("angle_error-max:",angle_error.max(),"min:",angle_error.min(),"mean:",angle_error.mean())
-        print("first_angle_error-max:",self.first_angle_error.max(),"min:",self.first_angle_error.min(),"mean:",self.first_angle_error.mean())  
+        # print("reward-max:",reward.max(),"min:",reward.min(),"mean:",reward.mean())
+        # print("angle_error-max:",angle_error.max(),"min:",angle_error.min(),"mean:",angle_error.mean())
+        # print("first_angle_error-max:",self.first_angle_error.max(),"min:",self.first_angle_error.min(),"mean:",self.first_angle_error.mean())  
         reward = np.sum(reward)
         # x = np.sum(angle_error-self.first_angle_error)*beta
         # reward = (1 / (1 + np.exp(x))-0.6)*2

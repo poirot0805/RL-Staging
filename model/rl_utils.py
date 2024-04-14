@@ -141,7 +141,7 @@ def train_off_policy_agent(env, agent, num_episodes, replay_buffer, minimal_size
                 pbar.update(1)
     return return_list
 
-def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, minimal_size, batch_size,explore_cnt=100):
+def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, minimal_size, batch_size,explore_cnt=10):
     return_list = []
     # 加载num条原始数据
     data_root = [os.path.join(bvh_folder, "complete"), os.path.join(bvh_folder, "incomplete")]
@@ -205,7 +205,7 @@ def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, min
                 convex_dict=getConvexDict(basename,remove_list)
                 env = gym.make('OrthoEnv',first_step=first_state,convex_hulls=convex_dict,epsilon=0)
                 end_time = time.time()
-                print(f"epoch:{epoch},episode:{i},load time:{end_time-start_time}")
+                # print(f"epoch:{epoch},episode:{i},load time:{end_time-start_time}")
                 bump_cnt=0
 
                 episode_return = 0
@@ -243,6 +243,7 @@ def my_train_off_policy_agent(bvh_folder,agent, num_episodes, replay_buffer, min
             return_list.append(tmp_mean)
             pbar.update(1)
     return return_list
+
 
 def compute_advantage(gamma, lmbda, td_delta):
     td_delta = td_delta.detach().numpy()
