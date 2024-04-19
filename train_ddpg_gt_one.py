@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import gym
 import numpy as np
@@ -9,8 +10,10 @@ from model import rl_utils
 from model.ddpg import DDPG
 import matplotlib.pyplot as plt
 import pickle
-
-pretrain_epoch = 100
+# 重新生成teacher数据，只包含trans一项reward
+policytype = sys.argv[1]
+print(f"policy type:{policytype}")
+pretrain_epoch = 50
 actor_lr = 1e-3
 critic_lr = 3e-3
 num_episodes = 1800
@@ -41,13 +44,14 @@ assert mean.shape == (28, 9)
 assert std.shape == (28, 9)
 replay_buffer = []#rl_utils.ReplayBuffer(buffer_size)
 # 加载teacher数据到replaybuffer
-teacher_dataroot = r"/datasets/mjy/teacher_data"
+teacher_dataroot = r"/datasets/mjy/teacher_data_onereward"
 teacher_cnt = 0
 teachers=[]
 for f in os.listdir(teacher_dataroot):
     if f.endswith(".json"):
         teachers.append(f)
 teachers.sort()
+print("loading teacher data")
 for f in teachers:
     if teacher_cnt >= 6400:
         break
@@ -60,16 +64,18 @@ for f in teachers:
             rewards = transition_dict["rewards"]
             next_states = transition_dict["next_states"]
             dones = transition_dict["dones"]
+            qvalues = transition_dict['q_values']
             for i in range(len(states)):
                 state = np.array(states[i]).flatten()
                 action = np.array(actions[i]).flatten()
                 reward = rewards[i]
+                qv = qvalues[i]
                 next_state = np.array(next_states[i]).flatten()
                 done = dones[i]
-                replay_buffer.append((state, action, reward, next_state, done))
+                replay_buffer.append((state, action, reward, next_state, done, qv))
 
 
-agent = DDPG(state_dim, hidden_dim, action_dim, action_bound, sigma, actor_lr, critic_lr, tau, gamma, device,mean,std)
+agent = DDPG(state_dim, hidden_dim, action_dim, action_bound, sigma, actor_lr, critic_lr, tau, gamma, device,mean,std,policytype=policytype)
 
 return_list=[]
 total_size = len(replay_buffer)
@@ -124,7 +130,7 @@ for i in range(num_episodes):
 
                 first_state=np.concatenate([positions[0],r6d[0],positions[-1],r6d[-1],geo_code],axis=-1)
 
-                convex_dict=rl_utils.getConvexDict(basename,remove_list)
+                convex_dict={}#rl_utils.getConvexDict(basename,remove_list)
                 env = gym.make('OrthoEnv',first_step=first_state,convex_hulls=convex_dict,epsilon=0)
                 env_list.append(env)
                 
@@ -139,8 +145,8 @@ for i in range(pretrain_epoch):
         end_idx = min((iter+1)*batch_size, total_size)
         
         transitions = replay_buffer[start_idx:end_idx]
-        state, action, reward, next_state, done = zip(*transitions)
-        transition_dict = {'states': np.array(state), 'actions': np.array(action), 'next_states': np.array(next_state), 'rewards': reward, 'dones': done}
+        state, action, reward, next_state, done, qv = zip(*transitions)
+        transition_dict = {'states': np.array(state), 'actions': np.array(action), 'next_states': np.array(next_state), 'rewards': reward, 'dones': done, 'q_values': qv}
         agent.update(transition_dict)
     temp_return_list = []
     done_cases = 0
@@ -173,7 +179,7 @@ for i in range(pretrain_epoch):
     if tmp_mean> best_return:
             best_return = tmp_mean
             print(f"save best model with return:{best_return} in epoch:{i}")
-            rl_utils.save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,i,i,suffix=f"best_{agent_name}_gt_train.pth")
+            rl_utils.save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,i,i,suffix=f"best_{agent_name}{policytype}_gt_train.pth")
     print(f"[eval] epoch:{i},mean return:{tmp_mean},best return:{best_return}")
     print(f"done cases:{done_cases}/{num_episodes}")
     return_list.append(tmp_mean)
@@ -194,7 +200,7 @@ plt.plot(episodes_list, return_list)
 plt.xlabel('Epoch')
 plt.ylabel('Returns')
 plt.title('DDPG on {}'.format("OrthoStaging"))
-plt.savefig(r"/home/mjy/teeth/RL/ddpg.png")
+plt.savefig(r"/home/mjy/teeth/RL"+f"/ddpg_{agent_name}{policytype}_gt_train.png")
 
 
 mv_return = rl_utils.moving_average(return_list, 9)
@@ -202,4 +208,4 @@ plt.plot(episodes_list, mv_return)
 plt.xlabel('Epoch')
 plt.ylabel('Returns')
 plt.title('DDPG on {}'.format("OrthoStaging"))
-plt.savefig(r"/home/mjy/teeth/RL/ddpg_smooth.png")
+plt.savefig(r"/home/mjy/teeth/RL"+f"/ddpg_{agent_name}{policytype}_gt_trainsmooth.png")

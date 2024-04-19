@@ -77,19 +77,20 @@ class OrthoEnv(gym.Env):
         
         # 计算奖励
         reward_trans = self.calculate_translation_reward()
-        reward_rot = self.calculate_rotation_reward()
-        reward_collision = self.calculate_collision_penalty()*self.beta
-        reward_smooth = self.calculate_smooth_reward()*0.25
-        reward+=(reward_trans+reward_rot+reward_collision+reward_smooth)
-        reward -= 0.8  # 每执行一步减少的奖励
+        # reward_rot = self.calculate_rotation_reward()
+        # reward_collision = self.calculate_collision_penalty()*self.beta
+        # reward_smooth = self.calculate_smooth_reward()*0.25
+        # reward+=(reward_trans+reward_rot+reward_collision+reward_smooth)
+        reward += reward_trans
+        reward -= 0.5  # 每执行一步减少的奖励
         
         done = self.check_done()
 
         # 当所有苹果都到达指定位置和姿态时，给予额外奖励
         if done:
             reward += self.prize  # 假定的团队奖励
-        
-        return self.state, reward, done, False, {"info": f"total:{reward},trans:{reward_trans}, rot:{reward_rot}, smooth:{reward_smooth},collision:{reward_collision}"}
+        return self.state, reward, done, False, {"info": f"total:{reward}"}
+        # return self.state, reward, done, False, {"info": f"total:{reward},trans:{reward_trans}, rot:{reward_rot}, smooth:{reward_smooth},collision:{reward_collision}"}
 
     def calculate_translation_reward(self,k=8.0):
         # 根据苹果向目标位置移动的情况计算奖励

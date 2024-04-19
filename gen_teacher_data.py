@@ -68,7 +68,7 @@ def simulation(pos,r9d,geo_code,client,remove_idx):
     }
     env = gym.make('OrthoEnv',first_step=first_state,convex_hulls=convex_dict,epsilon=0)
     env.reset()
-    transition_dict = {'states': [], 'actions': [], 'next_states': [], 'rewards': [], 'dones': []}
+    transition_dict = {'states': [], 'actions': [], 'next_states': [], 'rewards': [], 'dones': [], "q_values":[]}
     step_num = pos.shape[0]
     check_error_premature=False
     check_error_nonstop=False
@@ -92,7 +92,13 @@ def simulation(pos,r9d,geo_code,client,remove_idx):
         transition_dict['next_states'].append(next_state.tolist())
         transition_dict['rewards'].append(reward)
         transition_dict['dones'].append(done)
-    json_path = os.path.join(r"/datasets/mjy/teacher_data",client+".json")
+    for i in range(step_num):
+        if i==0:
+            transition_dict['q_values'].append(total_return)
+        else:
+            last_q=transition_dict['q_values'][i-1]
+            transition_dict['q_values'].append(last_q-transition_dict['rewards'][i-1])
+    json_path = os.path.join(r"/datasets/mjy/teacher_data_onereward",client+".json")
     print(json_path)
     with open(json_path, "w") as fh:
         data = {
