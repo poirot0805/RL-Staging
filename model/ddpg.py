@@ -47,7 +47,7 @@ class DDPG:
             'critic_optimizer': self.critic_optimizer.state_dict()
         }
         return model_dict
-    
+
     def take_action(self, state,eval=False):
         state = torch.tensor([state], dtype=torch.float).to(self.device)
         state = self.zscore(state)
@@ -107,4 +107,51 @@ class DDPG:
 
         self.soft_update(self.actor, self.target_actor)  # 软更新策略网络
         self.soft_update(self.critic, self.target_critic)  # 软更新价值网络
+    
+    def pretrain_policy(self, transition_dict):
+        states = torch.tensor(transition_dict['states'], dtype=torch.float).to(self.device)
+        actions = torch.tensor(transition_dict['actions'], dtype=torch.float).to(self.device)
+        rewards = torch.tensor(transition_dict['rewards'], dtype=torch.float).view(-1, 1).to(self.device)
+        next_states = torch.tensor(transition_dict['next_states'], dtype=torch.float).to(self.device)
+        dones = torch.tensor(transition_dict['dones'], dtype=torch.float).view(-1, 1).to(self.device)
+        gt_qvalues = torch.tensor(transition_dict['q_values'], dtype=torch.float).view(-1, 1).to(self.device)
+        # zscore
+        states = self.zscore(states)
+        next_states = self.zscore(next_states)
         
+        self.critic_optimizer.zero_grad()       
+        self.critic.train() 
+        pred_q_values = self.critic(states, actions)
+        qv_loss_l1 = torch.mean(torch.abs(pred_q_values-gt_qvalues))  # SHOW
+        qv_loss_l1.backward()
+        self.critic_optimizer.step()
+        
+        self.actor_optimizer.zero_grad()
+        self.actor.train()
+        pred_actions = self.actor(states)
+        action_loss_l1 = torch.mean(torch.abs(pred_actions-actions))  # SHOW
+        action_loss_l1.backward()
+        self.actor_optimizer.step()
+
+        return qv_loss_l1.item(),action_loss_l1.item()
+    
+    def eval_pretrain_policy(self,transition_dict):
+        states = torch.tensor(transition_dict['states'], dtype=torch.float).to(self.device)
+        actions = torch.tensor(transition_dict['actions'], dtype=torch.float).to(self.device)
+        next_states = torch.tensor(transition_dict['next_states'], dtype=torch.float).to(self.device)
+        gt_qvalues = torch.tensor(transition_dict['q_values'], dtype=torch.float).view(-1, 1).to(self.device)
+        # zscore
+        states = self.zscore(states)
+        next_states = self.zscore(next_states)
+        
+        with torch.no_grad(): 
+            self.critic.eval()
+            pred_q_values = self.critic(states, actions)
+            qv_loss_l1 = torch.mean(torch.abs(pred_q_values-gt_qvalues))  # SHOW
+            
+            self.actor.eval()
+            pred_actions = self.actor(states)
+            action_loss_l1 = torch.mean(torch.abs(pred_actions-actions))  # SHOW
+
+
+        return qv_loss_l1.item(),action_loss_l1.item()
