@@ -16,7 +16,7 @@ def get_angle_error(batch, a, b,device):
     return res.unsqueeze(-1)
 
 class QValueNet(torch.nn.Module):
-    def __init__(self, state_dim, hidden_dim, action_dim):
+    def __init__(self, state_dim, hidden_dim, action_dim,mean,std):
         super(QValueNet, self).__init__()
         self.input_dim = (state_dim + action_dim)//28
         # self.fc1 = torch.nn.Linear(state_dim + action_dim, hidden_dim)
@@ -28,7 +28,9 @@ class QValueNet(torch.nn.Module):
         self.fc_layers.append(nn.Linear(self.input_dim+hidden_dim, hidden_dim))
         self.fc_layers.append(nn.Linear(self.input_dim+hidden_dim, hidden_dim))
         self.fc_out = nn.Linear(hidden_dim*28, 1)
-        self.kappa =8.0
+        self.kappa =16.0
+        self.mean=mean
+        self.std = std
     def forward(self, x, a):
         # cat = torch.cat([x, a], dim=1) # 拼接状态和动作
         # x = F.relu(self.fc1(cat))
@@ -36,10 +38,17 @@ class QValueNet(torch.nn.Module):
         # return self.fc_out(x)
         x_ = x.reshape(-1,28,126)
         a_ = a.reshape(-1,28,9)
-        c1,d1 = x_[...,:3],x_[...,3:9]
-        c2,d2 = x_[...,9:12],x_[...,12:18]
+        # c1,d1 = x_[...,:3],x_[...,3:9]
+        # c2,d2 = x_[...,9:12],x_[...,12:18]
+        # c1_next,d1_next = c1+a_[...,:3],d1+a_[...,3:9]
+        tmp1 = x_[...,:9].clone()*self.std+self.mean
+        tmp2 = x_[...,9:18].clone()*self.std+self.mean
+        c1,d1 = tmp1[...,:3],tmp1[...,3:9]
+        c2,d2 = tmp2[...,:3],tmp2[...,3:9]
         r1 = torch.norm(c1 - c2, dim=-1).unsqueeze(-1)
         r2 = get_angle_error(d1.shape[0],d1,d2,x.device)
+        r1 = torch.square(r1)
+        r2 = torch.square(r2)
         r1 = torch.log(self.kappa*r1+1)
         r2 = torch.log(self.kappa*r2*10.0+1)
         res = torch.cat([r1,r2],dim=-1)

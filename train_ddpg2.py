@@ -21,9 +21,7 @@ import pickle
 # python train_ddpg.py --policy_type "mlp" --gamma 0.0 --tensordir "runs/10case20e_gamma0_xloadzs" --des "10case20e_gamma0_xloadzs" > 0428_10case20e_gamma0_xloadzs.log 2>&1 &
 # python train_ddpg.py --policy_type "mlp" --gamma 0.0 --tensordir "runs/10case30e_gamma0_xloadzs_10eval" --des "10case30e_gamma0_xloadzs_10eval" -e 30 > 0428_10case30e_gamma0_xloadzs_10eval.log 2>&1 &
 # python train_ddpg.py --policy_type "mlp" --gamma 0.0 --tensordir "runs/10case30e_gamma0_xloadzs_10eval_half" --des "10case30e_gamma0_xloadzs_10eval_half" -e 30 > 0428_10case30e_gamma0_xloadzs_10eval_half.log 2>&1 &
-# python train_ddpg.py --policy_type "mlp" --gamma 0.0 --tensordir "runs/test" --des "test" -e 20 > 0429_test.log 2>&1 &
-# python train_ddpg.py --policy_type "mlp" --gamma 0.0 --tensordir "runs/test_g0_b32_lognorm2" --des "test_g0_b32_lognorm2" -e 20 > 0429_test_g0_b32_lognorm2.log 2>&1 &
-
+# python train_ddpg.py --policy_type "mlp" --gamma 0.98 --tensordir "runs/10case30e_gamma98_xloadzs_10eval_square_teach" --des "10case30e_gamma98_xloadzs_10eval_square_teach" -e 30 > 0429_10case30e_gamma98_xloadzs_10eval_square_teach.log 2>&1 &
 # 创建 ArgumentParser 对象
 parser = argparse.ArgumentParser(description="Process command line arguments for training configuration.")
     
@@ -49,20 +47,20 @@ print(f"Load Checkpoint: {args.load_ckp}")
 print(f"Epoch Num: {args.epoch_num}")
 print(f"Case Num: {args.case_num}")
 pretrain_epoch = 5
-actor_lr = 1e-4
-critic_lr = 1e-4
+actor_lr = 1e-3
+critic_lr = 3e-3
 num_episodes = args.case_num
 hidden_dim = 64
 gamma = args.gamma
 tau = 0.005  # 软更新参数
-buffer_size = 10000
+buffer_size = 100000
 minimal_size = 1000
-batch_size = 32
+batch_size = 64
 sigma = 0.01  # 高斯噪声标准差
 
 state_dim = 28*126
 action_dim = 28*9
-action_bound = 1  # 动作最大值
+action_bound = 2  # 动作最大值
 random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
@@ -77,14 +75,51 @@ device = torch.device("cuda:1") if torch.cuda.is_available() else torch.device(
 stats_path = r"/home/mjy/teeth/RL/train_stats_context.pkl"
 with open(stats_path, "rb") as fh:
     train_stats = pickle.load(fh)
-mean0 = train_stats["mean"]  # (28,9)
-std0 = train_stats["std"]    # (28,9)
-mean_pos, mean_rot = mean0[:,6:],mean0[:,:6]
-std_pos,std_rot = std0[:,6:],std0[:,:6]
-mean = np.concatenate([mean_pos,mean_rot],axis=-1)
-std = np.concatenate([std_pos,std_rot],axis=-1)
+mean = train_stats["mean"]  # (28,9)
+std = train_stats["std"]    # (28,9)
+assert mean.shape == (28, 9)
+assert std.shape == (28, 9)
 replay_buffer = rl_utils.ReplayBuffer(buffer_size)
-
+#------------------# 加载teacher数据到replaybuffer
+teacher_dataroot = r"/home/mjy/teeth/teacher"
+teacher_cnt = 0
+teachers=[]
+for f in os.listdir(teacher_dataroot):
+    if f.endswith(".json"):
+        teachers.append(f)
+teachers.sort()
+print("loading teacher data")
+action_stats=[]
+for f in teachers:
+    with open(os.path.join(teacher_dataroot, f)) as fh:
+            data = json.load(fh)
+            transition_dict = data["transition"]
+            states = transition_dict["states"]
+            actions = transition_dict["actions"]
+            rewards = transition_dict["rewards"]
+            next_states = transition_dict["next_states"]
+            dones = transition_dict["dones"]
+            # qvalues = transition_dict['q_values']
+            # qvalues[-1]=rewards[-1]
+            # for i in range(len(states)-2,-1,-1):
+            #     qvalues[i] = rewards[i] + gamma * qvalues[i+1] *(1-dones[i])
+            for i in range(len(states)):
+                state = np.array(states[i]).flatten()
+                action = np.array(actions[i]).flatten()
+                action_stats.append(actions[i])
+                
+                reward = rewards[i]
+                # qv = qvalues[i]
+                next_state = np.array(next_states[i]).flatten()
+                done = dones[i]
+                if teacher_cnt<5:
+                    replay_buffer.add(state, action, reward, next_state, done)
+    teacher_cnt += 1
+action_stats = np.concatenate(action_stats,axis=0)
+ac_mean = np.mean(action_stats,axis=0)
+ac_std = np.std(action_stats,axis=0)
+print(f"action mean:{ac_mean},action std:{ac_std}")
+#------------------#
 ckpt_path = r"/home/mjy/teeth/RL/checkpt/best_DDPGattention_eval_pretrainq.pth" if args.policy_type=="attention" else r"/home/mjy/teeth/RL/checkpt/best_DDPGmlp_eval_pretrainq.pth"
 agent = DDPG(state_dim, hidden_dim, action_dim, action_bound, sigma, actor_lr, critic_lr, tau, gamma, device,mean,std,policytype=args.policy_type)
 if args.load_ckp:

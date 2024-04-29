@@ -7,7 +7,7 @@ from torch import nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import model.rl_utils
-
+import os
 from model.policy import PolicyNet,PolicyNetAttention
 from model.valuenet import QValueNet
 
@@ -15,6 +15,9 @@ class DDPG:
     ''' DDPG算法 '''
     def __init__(self, state_dim, hidden_dim, action_dim, action_bound, sigma, actor_lr, critic_lr, tau, gamma, device,mean,std,
                  policytype = 'mlp',valuetype = 'mlp'):
+        self.device = device
+        self.mean = torch.tensor(mean, dtype=torch.float, device=device)
+        self.std = torch.tensor(std, dtype=torch.float, device=device)
         if policytype == 'mlp':
             self.actor = PolicyNet(state_dim, hidden_dim, action_dim, action_bound).to(device)
             self.target_actor = PolicyNet(state_dim, hidden_dim, action_dim, action_bound).to(device)
@@ -22,8 +25,8 @@ class DDPG:
             self.actor = PolicyNetAttention(state_dim, hidden_dim, action_dim, action_bound).to(device)
             self.target_actor = PolicyNetAttention(state_dim, hidden_dim, action_dim, action_bound).to(device)
         if valuetype == 'mlp':
-            self.critic = QValueNet(state_dim, hidden_dim, action_dim).to(device)
-            self.target_critic = QValueNet(state_dim, hidden_dim, action_dim).to(device)
+            self.critic = QValueNet(state_dim, hidden_dim, action_dim,self.mean,self.std).to(device)
+            self.target_critic = QValueNet(state_dim, hidden_dim, action_dim,self.mean,self.std).to(device)
         # 初始化目标价值网络并设置和价值网络相同的参数
         self.target_critic.load_state_dict(self.critic.state_dict())
         # 初始化目标策略网络并设置和策略相同的参数
@@ -34,9 +37,8 @@ class DDPG:
         self.sigma = sigma  # 高斯噪声的标准差,均值直接设为0
         self.tau = tau  # 目标网络软更新参数
         self.action_dim = action_dim
-        self.device = device
-        self.mean = torch.tensor(mean, dtype=torch.float, device=device)
-        self.std = torch.tensor(std, dtype=torch.float, device=device)
+
+        self.action_sigma = [0.00541336,0.01372177, 0.0050334,  0.0004491,  0.00072726, 0.00082922, 0.00046108 ,0.00053693 ,0.00033057]
     def save(self):
         model_dict = {
             'actor': self.actor.state_dict(),
@@ -47,7 +49,26 @@ class DDPG:
             'critic_optimizer': self.critic_optimizer.state_dict()
         }
         return model_dict
-
+    def load(self,checkpoint_path,equal=False,load_optimizer=False):
+        if os.path.exists(checkpoint_path):
+            device = self.device
+            checkpoint = torch.load(checkpoint_path, map_location=device)
+            epoch = checkpoint["epoch"]
+            iteration = checkpoint["iteration"]
+            model_dict = checkpoint["model"]
+            self.actor.load_state_dict(model_dict["actor"])
+            self.critic.load_state_dict(model_dict["critic"])
+            if equal:
+                self.target_actor.load_state_dict(model_dict["actor"])
+                self.target_critic.load_state_dict(model_dict["critic"])
+            else:
+                self.target_actor.load_state_dict(model_dict["target_actor"])
+                self.target_critic.load_state_dict(model_dict["target_critic"])
+            if load_optimizer:
+                self.actor_optimizer.load_state_dict(model_dict["actor_optimizer"])
+                self.critic_optimizer.load_state_dict(model_dict["critic_optimizer"])
+            print("Load checkpoint from {}. Current iteration: {}. Device: {}".format(
+                checkpoint_path, checkpoint["iteration"],device))
     def take_action(self, state,eval=False):
         state = torch.tensor([state], dtype=torch.float).to(self.device)
         state = self.zscore(state)
@@ -56,7 +77,12 @@ class DDPG:
         if eval:
             return action
         # 给动作添加噪声，增加探索
-        action = action + self.sigma * np.random.randn(self.action_dim)
+        # action = action + self.sigma * np.random.randn(self.action_dim)
+        origin_shape=action.shape
+        action = action.reshape(-1,28,9)
+        for i in range(9):
+            action[...,i] = action[...,i] + self.action_sigma[i] * np.random.randn(action.shape[0],action.shape[1])
+        action = action.reshape(origin_shape)
         return action
     
     def zscore(self,state):
@@ -76,13 +102,14 @@ class DDPG:
         for param_target, param in zip(target_net.parameters(), net.parameters()):
             param_target.data.copy_(param_target.data * (1.0 - self.tau) + param.data * self.tau)
 
-    def update(self, transition_dict):
+    def update(self, transition_dict,qv_mode=False):
         states = torch.tensor(transition_dict['states'], dtype=torch.float).to(self.device)
         actions = torch.tensor(transition_dict['actions'], dtype=torch.float).to(self.device)
         rewards = torch.tensor(transition_dict['rewards'], dtype=torch.float).view(-1, 1).to(self.device)
         next_states = torch.tensor(transition_dict['next_states'], dtype=torch.float).to(self.device)
         dones = torch.tensor(transition_dict['dones'], dtype=torch.float).view(-1, 1).to(self.device)
-        gt_qvalues = torch.tensor(transition_dict['q_values'], dtype=torch.float).view(-1, 1).to(self.device)
+        if qv_mode:
+            gt_qvalues = torch.tensor(transition_dict['q_values'], dtype=torch.float).view(-1, 1).to(self.device)
         # zscore
         states = self.zscore(states)
         next_states = self.zscore(next_states)
@@ -91,7 +118,8 @@ class DDPG:
         q_targets = rewards + self.gamma * next_q_values * (1 - dones)
         pred_q_values = self.critic(states, actions)
         critic_loss = torch.mean(F.mse_loss(pred_q_values, q_targets))
-        qv_loss_l1 = torch.mean(torch.abs(pred_q_values.detach()-gt_qvalues.detach()))  # SHOW
+        if qv_mode:
+            qv_loss_l1 = torch.mean(torch.abs(pred_q_values.detach()-gt_qvalues.detach()))  # SHOW
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
@@ -100,13 +128,39 @@ class DDPG:
         actor_loss = -torch.mean(self.critic(states, pred_actions))
         action_loss_l1 = torch.mean(torch.abs(pred_actions.detach()-actions.detach()))  # SHOW
         action_loss_l2 = torch.mean(torch.sqrt(torch.sum(torch.square(pred_actions.detach()-actions.detach()),dim=-1))) # SHOW
-        print('qv_loss_l1:',qv_loss_l1.item(),'action_loss_l1:',action_loss_l1.item(),'action_loss_l2:',action_loss_l2.item())
+
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
 
+        # 梯度
+        print("#this is actor:")
+        for name, parms in self.actor.named_parameters():	
+            print('-->name:', name, '-->grad_requirs:',parms.requires_grad, \
+            ' -->grad_value:',parms.grad)
+        # 梯度
+        print("#this is target_actor:")
+        for name, parms in self.target_actor.named_parameters():	
+            print('-->name:', name, '-->grad_requirs:',parms.requires_grad, \
+            ' -->grad_value:',parms.grad)    
+        print("#this is critic:")
+        for name, parms in self.critic.named_parameters():	
+            print('-->name:', name, '-->grad_requirs:',parms.requires_grad, \
+            ' -->grad_value:',parms.grad)
+        print("#this is target_critic:")
+        for name, parms in self.target_critic.named_parameters():	
+            print('-->name:', name, '-->grad_requirs:',parms.requires_grad, \
+            ' -->grad_value:',parms.grad)        
+        print("------------------------")
         self.soft_update(self.actor, self.target_actor)  # 软更新策略网络
         self.soft_update(self.critic, self.target_critic)  # 软更新价值网络
+        
+        if qv_mode:
+            print('qv_loss_l1:',qv_loss_l1.item(),'action_loss_l1:',action_loss_l1.item(),'action_loss_l2:',action_loss_l2.item())
+            return qv_loss_l1.item(),action_loss_l1.item(),action_loss_l2.item()
+        else:
+            print('critic_loss:',critic_loss.item(),'action_loss_l1:',action_loss_l1.item(),'action_loss_l2:',action_loss_l2.item())
+            return critic_loss.item(),action_loss_l1.item(),action_loss_l2.item()
     
     def pretrain_policy(self, transition_dict):
         states = torch.tensor(transition_dict['states'], dtype=torch.float).to(self.device)

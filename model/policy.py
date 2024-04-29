@@ -218,7 +218,7 @@ class PolicyNet(torch.nn.Module):
                 x_ = self.activation(x_+layer(x_))
         x_ = self.activation(self.fc_low(x_))
         res = x_.flatten(start_dim=1)
-        return torch.tanh(self.fc_out(res)) * self.action_bound
+        return torch.tanh(self.fc_out(res))
     
 class PolicyNetAttention(torch.nn.Module):
     def __init__(self, state_dim, hidden_dim, action_dim, action_bound):

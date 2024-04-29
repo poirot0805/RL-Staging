@@ -11,6 +11,7 @@ from model.ddpg import DDPG
 import matplotlib.pyplot as plt
 import pickle
 # 重新生成teacher数据，只包含trans一项reward
+# teacher train + env eval
 policytype = sys.argv[1]
 print(f"policy type:{policytype}")
 pretrain_epoch = 50
@@ -20,7 +21,7 @@ num_episodes = 1800
 hidden_dim = 64
 gamma = 0.98
 tau = 0.005  # 软更新参数
-buffer_size = 1000000
+buffer_size = 10000
 minimal_size = 1000
 batch_size = 64
 sigma = 0.01  # 高斯噪声标准差
@@ -32,7 +33,7 @@ random.seed(0)
 np.random.seed(0)
 torch.manual_seed(0)
 
-device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device(
+device = torch.device("cuda:1") if torch.cuda.is_available() else torch.device(
     "cpu")
 # get mean and std of the state
 stats_path = r"/home/mjy/teeth/RL/train_stats_context.pkl"
@@ -65,6 +66,9 @@ for f in teachers:
             next_states = transition_dict["next_states"]
             dones = transition_dict["dones"]
             qvalues = transition_dict['q_values']
+            qvalues[-1]=rewards[-1]
+            for i in range(len(states)-2,-1,-1):
+                qvalues[i] = rewards[i] + gamma * qvalues[i+1] *(1-dones[i])
             for i in range(len(states)):
                 state = np.array(states[i]).flatten()
                 action = np.array(actions[i]).flatten()
@@ -74,9 +78,9 @@ for f in teachers:
                 done = dones[i]
                 replay_buffer.append((state, action, reward, next_state, done, qv))
 
-
+ckpt_path = r"/home/mjy/teeth/RL/checkpt/best_DDPGattention_eval_pretrainq.pth" if policytype=="attention" else r"/home/mjy/teeth/RL/checkpt/best_DDPGmlp_eval_pretrainq.pth"
 agent = DDPG(state_dim, hidden_dim, action_dim, action_bound, sigma, actor_lr, critic_lr, tau, gamma, device,mean,std,policytype=policytype)
-
+agent.load(ckpt_path,equal=True)
 return_list=[]
 total_size = len(replay_buffer)
 print("total size",total_size)
@@ -161,7 +165,7 @@ for i in range(pretrain_epoch):
 
         while not done:
             state = _state.flatten()
-            action = agent.take_action(state,eval=False)[0]
+            action = agent.take_action(state,eval=True)[0]
             _action = action.reshape(28,9)
             _next_state, reward, done, _,info = env.step(_action)
             print(info)

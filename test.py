@@ -38,8 +38,11 @@ import data.utils_torch as utils_torch
 # e = np.array(d)
 # print(e)
 
-# **test4
-a = torch.randn(4, 5, 3)
-b = torch.randn(4, 5, 3)
-c = torch.norm(a - b, dim=-1)
+a=[]
+
+for i in range(3):
+    b = np.random.normal(loc=0, scale=1, size=(2, 4))
+    a.append(b)
+c = np.array(a)
 print(c.shape)
+print(np.mean(c,axis=0).shape)

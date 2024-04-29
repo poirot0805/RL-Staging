@@ -3,7 +3,7 @@ import math
 import gym
 from gym import spaces
 from data import utils_np
-import hppfcl
+#import hppfcl
 
 """_summary_
 /home/mjy/anaconda3/envs/rl/lib/python3.8/site-packages/gym/envs/user
@@ -34,13 +34,15 @@ class OrthoEnv(gym.Env):
     def __init__(self,first_step,convex_hulls,beta=10,contact_threshold=0.3,prize=200,epsilon=0.6):
         
         # 定义动作空间和观察空间
-        self.action_space = spaces.Box(low=-1, high=1, shape=(NUM_TEETH, 9), dtype=np.float32)  # 每个苹果的位置和姿态变化向量(平移和旋转
+        self.action_space = spaces.Box(low=-2, high=2, shape=(NUM_TEETH, 9), dtype=np.float32)  # 每个苹果的位置和姿态变化向量(平移和旋转
         self.observation_space = spaces.Box(low=-50, high=50, shape=(NUM_TEETH, STATE_DIM), dtype=np.float32)  
         
         self.first_step=first_step
-        self.first_dis = np.linalg.norm(first_step[:, :3] - first_step[:, 9:12], axis=1)    # 初始状态与目标位置的距离
-        self.first_angle_error = self.get_angle_error_np(first_step[:, 3:9], first_step[:, 12:18])  #初始状态与目标朝向的角度差
+        self.first_dis = np.square(np.linalg.norm(first_step[:, :3] - first_step[:, 9:12], axis=1))    # 初始状态与目标位置的距离
+        self.first_angle_error = np.square(self.get_angle_error_np(first_step[:, 3:9], first_step[:, 12:18]) ) #初始状态与目标朝向的角度差
         self.convex_hulls=convex_hulls  # 碰撞检测用的凸包{"up_meshes"，"up_list","down_meshes","down_list"}
+        self.last_dis = self.first_dis
+        self.last_angle_error = self.first_angle_error
         
         self.beta=beta  # 旋转奖励的系数
         self.contact_threshold=contact_threshold    # 碰撞惩罚的阈值
@@ -74,55 +76,89 @@ class OrthoEnv(gym.Env):
         self.last_state = self.state.copy()
         # 用简化的逻辑更新状态
         self.state[:, :9] += action  # 假设前9维为当前姿态，直接加上动作向量
-        
+
+        print(action[0,:9]," ",action[1,:9])
         # 计算奖励
         reward_trans = self.calculate_translation_reward()
-        # reward_rot = self.calculate_rotation_reward()
+        reward_rot = 0#self.calculate_rotation_reward()
+        half_reward_trans = 0#self.cal_half_trans_reward()
+        half_reward_rot = 0#self.cal_half_rot_reward()
         # reward_collision = self.calculate_collision_penalty()*self.beta
         # reward_smooth = self.calculate_smooth_reward()*0.25
         # reward+=(reward_trans+reward_rot+reward_collision+reward_smooth)
         reward += reward_trans
-        reward -= 0.5  # 每执行一步减少的奖励
+        reward += reward_rot
+        # reward += half_reward_trans
+        # reward += half_reward_rot
+        
+        # reward -= 0.5  # 每执行一步减少的奖励
         
         done = self.check_done()
 
         # 当所有苹果都到达指定位置和姿态时，给予额外奖励
         if done:
             reward += self.prize  # 假定的团队奖励
-        return self.state, reward, done, False, {"info": f"total:{reward}"}
-        # return self.state, reward, done, False, {"info": f"total:{reward},trans:{reward_trans}, rot:{reward_rot}, smooth:{reward_smooth},collision:{reward_collision}"}
+        return self.state, reward, done, False, {"info": f"total:{reward},trans:{reward_trans}, rot:{reward_rot},half-trans:{half_reward_trans},half-rot:{half_reward_rot}"}
+        #return self.state, reward, done, False, {"info": f"total:{reward},trans:{reward_trans}, rot:{reward_rot}, smooth:{reward_smooth},collision:{reward_collision}"}
 
-    def calculate_translation_reward(self,k=8.0):
+    def calculate_translation_reward(self,k=16.0):
         # 根据苹果向目标位置移动的情况计算奖励
         current_positions = self.state[:, :3]#（teeth,pos)
         target_positions = self.state[:, 9:12]
-        distance = np.linalg.norm(current_positions - target_positions, axis=1)
-        reward = -np.log((1+k*distance)/(1+k*self.first_dis))
-        # print("reward-max:",reward.max(),"min:",reward.min(),"mean:",reward.mean())
-        # print("distance-max:",distance.max(),"min:",distance.min(),"mean:",distance.mean())
-        # print("first_dis-max:",self.first_dis.max(),"min:",self.first_dis.min(),"mean:",self.first_dis.mean())
+        distance = np.square(np.linalg.norm(current_positions - target_positions, axis=1))
+        print(distance.shape)
+        print("dis-target:",self.first_dis.tolist())
+        print("dis-current:",distance.tolist())
+
+        # reward = np.square(self.last_dis)-np.square(distance)
+        reward = -np.log((1+k*distance)/(1+k*self.last_dis))
+        print("reward:",reward.tolist())
+
+        #print("reward-max:",reward.max(),"min:",reward.min(),"mean:",reward.mean())
+        #print("distance-max:",distance.max(),"min:",distance.min(),"mean:",distance.mean())
+        #print("first_dis-max:",self.first_dis.max(),"min:",self.first_dis.min(),"mean:",self.first_dis.mean())
         reward = np.sum(reward)
         # x = np.sum(distance-self.first_dis) # BUG:不应该sigmoid 正值表示远离目标位置，负值表示接近目标位置
         # reward = (1 / (1 + np.exp(x))-0.6)*2    # BUG：不应该用sigmoid函数，应该用对数/指数函数，单调递减的函数
-        self.first_dis = distance
+        self.last_dis = distance
         return reward
 
-    def calculate_rotation_reward(self,beta=10,k=8.0):
+    def calculate_rotation_reward(self,beta=10,k=16.0):
         # 根据苹果接近目标朝向的情况计算奖励
         beta = self.beta
         current_rotations = self.state[:, 3:9]
         target_rotations = self.state[:, 12:18]
-        angle_error = self.get_angle_error_np(current_rotations, target_rotations)
-        reward = -np.log((1+k*beta*angle_error)/(1+k*beta*self.first_angle_error))
+        angle_error = np.square(self.get_angle_error_np(current_rotations, target_rotations))
+        #print(angle_error)
+        # reward = np.square(self.last_angle_error) - np.square(angle_error)
+        reward = -np.log((1+k*beta*angle_error)/(1+k*beta*self.last_angle_error))
         # print("reward-max:",reward.max(),"min:",reward.min(),"mean:",reward.mean())
         # print("angle_error-max:",angle_error.max(),"min:",angle_error.min(),"mean:",angle_error.mean())
         # print("first_angle_error-max:",self.first_angle_error.max(),"min:",self.first_angle_error.min(),"mean:",self.first_angle_error.mean())  
         reward = np.sum(reward)
         # x = np.sum(angle_error-self.first_angle_error)*beta
         # reward = (1 / (1 + np.exp(x))-0.6)*2
-        self.first_angle_error = angle_error
+        self.last_angle_error = angle_error
         return reward
-    
+    def cal_half_trans_reward(self,k=0.01):
+        # 计算平移奖励
+        current_positions = self.state[:, :3]
+        target_positions = self.state[:, 9:12]
+        distance = np.linalg.norm(current_positions - target_positions, axis=1)
+        reward = -np.log((1+k*distance)/(1+k*self.first_dis/2))
+        print("dis-target:",self.first_dis.tolist())
+        print("dis-current:",distance.tolist())
+        print("ratio:",(distance/self.first_dis*2).tolist())
+        print("reward:",reward.tolist())
+        return np.sum(reward)
+    def cal_half_rot_reward(self,beta=10,k=0.01):
+        # 计算旋转奖励
+        beta = self.beta
+        current_rotations = self.state[:, 3:9]
+        target_rotations = self.state[:, 12:18]
+        angle_error = self.get_angle_error_np(current_rotations, target_rotations)
+        reward = -np.log((1+k*beta*angle_error)/(1+k*beta*self.first_angle_error/2))
+        return np.sum(reward)
     def calculate_smooth_reward(self,beta=10):
         beta = self.beta
         current_positions = self.state[:, :3]

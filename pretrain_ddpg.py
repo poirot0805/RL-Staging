@@ -13,7 +13,7 @@ import pickle
 # 重新生成teacher数据，只包含trans一项reward
 policytype = sys.argv[1]
 print(f"policy type:{policytype}")
-pretrain_epoch = 50
+pretrain_epoch = 25
 actor_lr = 1e-3
 critic_lr = 3e-3
 num_episodes = 1800
@@ -64,7 +64,9 @@ for f in teachers:
             next_states = transition_dict["next_states"]
             dones = transition_dict["dones"]
             qvalues = transition_dict['q_values']
-            action_stats.append(np.mean(np.array(actions),axis=(0,1)))
+            qvalues[-1]=rewards[-1]
+            for i in range(len(states)-2,-1,-1):
+                qvalues[i] = rewards[i] + gamma * qvalues[i+1] *(1-dones[i])
             for i in range(len(states)):
                 state = np.array(states[i]).flatten()
                 action = np.array(actions[i]).flatten()
@@ -77,8 +79,7 @@ for f in teachers:
                 else:
                     eval_buffer.append((state, action, reward, next_state, done, qv))
     teacher_cnt += 1
-action_stats = np.array(action_stats)
-print("action stats:",np.mean(action_stats,axis=0),np.std(action_stats,axis=0))
+
 agent = DDPG(state_dim, hidden_dim, action_dim, action_bound, sigma, actor_lr, critic_lr, tau, gamma, device,mean,std,policytype=policytype)
 
 return_list_a=[]
@@ -116,7 +117,7 @@ for i in range(pretrain_epoch):
     if tmp_mean> best_return:
             best_return = tmp_mean
             print(f"save best model with return:{best_return} in epoch:{i}")
-            rl_utils.save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,i,i,suffix=f"best_{agent_name}{policytype}_pretrain.pth")
+            rl_utils.save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,i,i,suffix=f"best_{agent_name}{policytype}_pretrainq.pth")
     sum_eval_a=0
     sum_eval_c=0
     for iter in range(eval_size//batch_size):
@@ -135,7 +136,7 @@ for i in range(pretrain_epoch):
     if tmp_mean> best_eval_return:
             best_eval_return = tmp_mean
             print(f"save best model with return:{best_eval_return} in epoch:{i}")
-            rl_utils.save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,i,i,suffix=f"best_{agent_name}{policytype}_eval_pretrain.pth")
+            rl_utils.save_checkpoint(r"/home/mjy/teeth/RL/checkpt/",agent,i,i,suffix=f"best_{agent_name}{policytype}_eval_pretrainq.pth")
 
 
 episodes_list = list(range(len(return_list_a)))
@@ -146,7 +147,7 @@ plt.legend()
 plt.xlabel('Epoch')
 plt.ylabel('actor loss')
 plt.title('DDPG on {}'.format("OrthoStaging"))
-plt.savefig(r"/home/mjy/teeth/RL"+f"/ddpg_{agent_name}{policytype}_actor.png")
+plt.savefig(r"/home/mjy/teeth/RL"+f"/ddpg_{agent_name}{policytype}_actor_q.png")
 plt.close()
 
 plt.figure()
@@ -156,5 +157,5 @@ plt.legend()
 plt.xlabel('Epoch')
 plt.ylabel('critic loss')
 plt.title('DDPG on {}'.format("OrthoStaging"))
-plt.savefig(r"/home/mjy/teeth/RL"+f"/ddpg_{agent_name}{policytype}_critic.png")
+plt.savefig(r"/home/mjy/teeth/RL"+f"/ddpg_{agent_name}{policytype}_critic_q.png")
 plt.close()
